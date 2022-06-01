@@ -6,11 +6,13 @@ import os
 import sys
 import time
 from collections import namedtuple
+from typing import List
 
 import numpy as np
 from scipy.optimize import minimize
 from sympy import deg
 
+from qiskit.circuit import Parameter
 from qiskit import (Aer, ClassicalRegister,  # for computing expectation tables
                     QuantumCircuit, QuantumRegister, execute)
 
@@ -43,9 +45,12 @@ QAOA_Parameter  = namedtuple('QAOA_Parameter', ['beta', 'gamma'])
   
 # Create ansatz specific to this problem, defined by G = nodes, edges, and the given parameters
 # Do not include the measure operation, so we can pre-compute statevector
-def create_qaoa_circ(nqubits, edges, parameters):
+def create_qaoa_circ(nqubits: int, edges, parameters: List[QAOA_Parameter], parametrized: bool = True) -> QuantumCircuit:
 
     qc = QuantumCircuit(nqubits)
+    
+    gamma = Parameter("𝛄")
+    beta = Parameter("β")
 
     # initial_state
     for i in range(0, nqubits):
@@ -56,13 +61,25 @@ def create_qaoa_circ(nqubits, edges, parameters):
         
         # problem unitary
         for i,j in edges:
-            qc.rzz(2 * par.gamma, i, j) # Parameter gamma
+            if parametrized:
+                qc.rzz(2 * gamma, i, j) # Parameter gamma
+            else: 
+                qc.rzz(2 * par.gamma, i, j) # Parameter gamma
+
 
         qc.barrier()
         
         # mixer unitary
         for i in range(0, nqubits):
-            qc.rx(2 * par.beta, i) # Parameter beta 
+            if parametrized:
+                qc.rx(2 * beta, i) # Parameter beta 
+            else:
+                qc.rx(2 * par.beta, i) # Parameter beta 
+
+        if parametrized:
+            qc.assign_parameters({gamma: par.gamma}, inplace=True)
+            qc.assign_parameters({beta: par.beta}, inplace=True)
+
 
     return qc
     
@@ -79,12 +96,12 @@ def MaxCut (num_qubits, secret_int, edges, method = 1, rounds = 1, theta = None)
         
     # put parameters into the form expected by the ansatz generator
     p = len(theta)//2  # number of qaoa rounds
-    beta = theta[:p]
-    gamma = theta[p:]
-    parameters = [QAOA_Parameter(*t) for t in zip(beta,gamma)]
+    betas = theta[:p]
+    gammas = theta[p:]
+    parameters = [QAOA_Parameter(*t) for t in zip(betas, gammas)]
         
     # and create the circuit, without measurements
-    qc = create_qaoa_circ(num_qubits, edges, parameters)   
+    qc = create_qaoa_circ(num_qubits, edges, parameters)
 
     # pre-compute and save an array of expected measurements
     compute_expectation(qc, num_qubits, secret_int)
@@ -420,4 +437,4 @@ def run (min_qubits=3, max_qubits=6, max_circuits=3, num_shots=10_000,
                                   num_x_bins=num_x_bins, x_size=x_size, y_size=y_size)
 
 # if main, execute method
-if __name__ == '__main__': run()
+if __name__ == '__main__': run(method=2)
